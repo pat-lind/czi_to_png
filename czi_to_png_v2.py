@@ -11,6 +11,23 @@ from czitools.metadata_tools.channel import CziChannelInfo
 # >>> ADAPT TO 5x/z-stack FILES
 # >>> ADAPT TO DO ANY CZI FILE WITHOUT DESIGNATING PREFIX BY JUST COPYING FILENAME + CHANNEL NAME
 
+def sequence_conversion(file_name, file_prefix):
+    #expected input "MM 437 LH C10.czi" or "MM 437 LH C1.czi"
+    # or MM 437 LH C11_Final.czi or MM 437 LH C11_Full Tissue.czi or MM 437 LH C11 (large).czi
+    keys = {'A':1,'B':2,'C':3,'D':4} #go up to E
+    postfix = file_name[len(file_prefix):len(file_prefix)+4].strip().replace('.','')
+    postfix_keynumber = keys[postfix[0]]
+    postfix_numbers = int(postfix[1:])*10
+    if postfix_numbers >= 100:
+        new_postfix = '0' + str(postfix_keynumber + postfix_numbers)
+    else:
+        new_postfix = '0' + '0' + str(postfix_keynumber + postfix_numbers)
+    if file_name[len(file_prefix)+4:].strip() == '.czi': #the case of nothing after "C##"
+        new_prefix = file_prefix
+    else:
+        new_prefix = file_prefix + '_' + file_name[len(file_prefix)+4:].strip().replace('.czi','').replace('czi','')
+
+    return new_prefix, new_postfix
 
 def czi_to_image(czi_image_path, output_dir, downsize_factor, file_prefix, text_file_name):
     file_name = czi_image_path.split('/')[-1]
@@ -18,14 +35,15 @@ def czi_to_image(czi_image_path, output_dir, downsize_factor, file_prefix, text_
     with czi.open_czi(czi_image_path) as czi_image:
         print("\nResizing and saving image channels for file: " + file_name)
 
-        # save original dimensions, spacing, and downsize_factor to a text file
+        #save original dimensions, spacing, and downsize_factor to a text file
+
         with open(text_file_name, 'a') as file:
             spacing = [CziScaling(czi_image_path).X, CziScaling(czi_image_path).Y]
             dims = f"{file_name},  original dims, {CziDimensions(czi_image_path).SizeX} {CziDimensions(czi_image_path).SizeY},  spacing, {spacing},  downscaling factor, {downsize_factor}\n"
             file.write(dims)
-        #for each channel in czi file
-        channels = CziChannelInfo(czi_image_path).names
+        channels = CziChannelInfo(czi_image_path).names #get channel names
         bounding_box = czi_image.total_bounding_rectangle[2:]
+        #for each channel in czi file
         for i in range(len(channels)):
             channel_name = CziChannelInfo(czi_image_path).names[i].replace(" ","").replace("-","").replace("/","-")
 
@@ -34,9 +52,11 @@ def czi_to_image(czi_image_path, output_dir, downsize_factor, file_prefix, text_
 
             img = resize(frame[..., 0], (bounding_box[1] // downsize_factor, bounding_box[0] // downsize_factor), anti_aliasing=True)
 
-            postfix = file_name.split("\\")[-1].strip()[len(file_prefix):].replace('.czi','').replace('czi','').replace(" ", "") #anything after file prefix
+            #prefix, postfix = sequence_conversion(file_name, file_prefix)
+            postfix = file_name.split("\\")[-1].strip()[len(file_prefix):].replace('.czi','')
             #if sub-folder of channel name exists then save
             #else create sub-folder and save
+
             if os.path.exists(output_dir + channel_name):
                 matplotlib.image.imsave(output_dir + channel_name + '\\' + file_prefix + '_' + channel_name + "_" +  postfix + '.png', img)
             else:
@@ -44,10 +64,10 @@ def czi_to_image(czi_image_path, output_dir, downsize_factor, file_prefix, text_
                 matplotlib.image.imsave(output_dir + channel_name + '\\' + file_prefix + '_' + channel_name + "_" + postfix + '.png', img)
 
 
+
 def run(czi_dir, output_dir, file_prefix, downsize_factor):
     files = []
-    file_exceptions = []
-    exceptions = []
+
 
 
     for dirpath, dirnames, filenames in os.walk(czi_dir): #filtering only for files that match our prefix
@@ -56,28 +76,16 @@ def run(czi_dir, output_dir, file_prefix, downsize_factor):
                 files.append(os.path.join(dirpath, filename))
     #replace each file directory for the file name
     for file in files:
-        try:
-            #create a text file or append to an existing one for all czis that are going to be processed
-            text_file_name = output_dir + 'dims.txt'
 
-            if not os.path.exists(text_file_name):  # if file doesn't exist already
-                os.makedirs(output_dir, exist_ok=True) #make parent folder if doesn't exist
-                with open(text_file_name, 'w') as text_file: #make text file
+        #create a text file or append to an existing one for all czis that are going to be processed
+        text_file_name = output_dir + '/dims.txt'
+        if not os.path.exists(text_file_name): #if file doesn't exist already
+            with open(text_file_name, 'w') as text_file:
                     text_file.write("OG CZI INFO:\n\n")
 
-            czi_to_image(file, output_dir, downsize_factor, file_prefix, text_file_name)
-        except Exception as e:
-            print("Failed to convert file: ", file)
-            file_exceptions.append(file)
-            exceptions.append(e)
-    print("Finished converting files: " + str(len(files)))
-    print("Failed files: " + str(len(file_exceptions)))
-    for i in range(len(exceptions)):
-        print(25 * '_')
-        print("File Exceptions: ")
-        print(file_exceptions[i])
-        print(exceptions[i])
-        print(25 * '_')
+        czi_to_image(file, output_dir, downsize_factor, file_prefix, text_file_name)
+
+
 
 def main():
     parser = argparse.ArgumentParser(
